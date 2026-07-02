@@ -1,65 +1,66 @@
-import Image from "next/image";
-
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            Bienvenido a la Forja de Kraken Digital Labs.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="min-h-screen bg-kraken-black flex flex-col items-center justify-center p-8 relative overflow-hidden">
+      
+      {/* Efecto de luz dorada sutil en el fondo */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[500px] bg-kraken-gold/5 blur-[120px] rounded-full pointer-events-none" />
+
+      <div className="z-10 text-center max-w-4xl w-full">
+        {/* Título Principal */}
+        <h1 className="text-5xl md:text-7xl font-bold tracking-tighter mb-6">
+          <span className="text-kraken-white">Yessy </span>
+          <span className="bg-linear-to-r from-kraken-gold via-[#FFDF00] to-kraken-gold bg-clip-text text-transparent">Kraken</span>
+          <br />
+          <span className="text-kraken-white">Digital Labs</span>
+        </h1>
+
+        {/* Subtítulo */}
+        <p className="text-kraken-gold tracking-[0.2em] uppercase text-sm md:text-base font-semibold mb-8">
+          Oráculo de Automatización & Riqueza
+        </p>
+
+        {/* Descripción de la Oferta */}
+        <p className="text-kraken-muted text-lg md:text-xl leading-relaxed mb-12 max-w-2xl mx-auto">
+          Plataforma premium de automatización. Desplegamos Agentes de IA y sistemas SaaS que transforman la operación de negocios locales en ecosistemas altamente rentables 24/7.
+        </p>
+
+        {/* Los 3 Módulos (Grid) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16 text-left">
+          
+          {/* Tarjeta 1 */}
+          <div className="bg-kraken-dark border border-kraken-gray/50 p-8 rounded-xl hover:border-kraken-gold/50 hover:shadow-gold-glow transition-all duration-300">
+            <h3 className="text-kraken-white font-bold text-xl mb-3">Turismo AI Broker</h3>
+            <p className="text-kraken-muted text-sm leading-relaxed">
+              Agente inteligente que cierra ventas de paquetes turísticos (Comuna 13, Necoclí) y procesa pagos directos.
+            </p>
+          </div>
+
+          {/* Tarjeta 2 */}
+          <div className="bg-kraken-dark border border-kraken-gray/50 p-8 rounded-xl hover:border-kraken-gold/50 hover:shadow-gold-glow transition-all duration-300">
+            <h3 className="text-kraken-white font-bold text-xl mb-3">Dev-Factory SaaS</h3>
+            <p className="text-kraken-muted text-sm leading-relaxed">
+              Sistemas de gestión (PMS, Restaurantes) desplegados bajo demanda con modelo de suscripción MRR.
+            </p>
+          </div>
+
+          {/* Tarjeta 3 */}
+          <div className="bg-kraken-dark border border-kraken-gray/50 p-8 rounded-xl hover:border-kraken-gold/50 hover:shadow-gold-glow transition-all duration-300">
+            <h3 className="text-kraken-white font-bold text-xl mb-3">Wealth Oracle</h3>
+            <p className="text-kraken-muted text-sm leading-relaxed">
+              Auditoría tecnológica premium. Detectamos fugas operativas e implementamos soluciones de alto rendimiento.
+            </p>
+          </div>
+
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* Botón de Acción Principal */}
+        <div className="mt-16">
+          <button className="bg-transparent border-2 border-kraken-gold text-kraken-gold px-8 py-3 rounded-full font-bold uppercase tracking-wider hover:bg-kraken-gold hover:text-kraken-black transition-colors duration-300 cursor-pointer">
+            Iniciar Secuencia
+          </button>
         </div>
-      </main>
-    </div>
+
+      </div>
+    </main>
   );
 }
