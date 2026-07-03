@@ -1,14 +1,31 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import { signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { collection, getDocs, orderBy, query } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+
+// Definimos la interfaz del Lead para TypeScript
+interface Lead {
+  id: string;
+  name: string;
+  email: string;
+  whatsapp: string;
+  interest: string;
+  status: string;
+  createdAt: any;
+  source: string;
+}
 
 export default function DashboardPage() {
   const { user, loading } = useAuthStore();
   const router = useRouter();
+  
+  // Estado para los leads
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loadingLeads, setLoadingLeads] = useState(true);
 
   useEffect(() => {
     // Si ya cargó y NO hay usuario, expulsarlo al login
@@ -16,6 +33,33 @@ export default function DashboardPage() {
       router.push("/login");
     }
   }, [user, loading, router]);
+
+  // Cargar leads si hay un usuario autenticado
+  useEffect(() => {
+    if (user) {
+      const fetchLeads = async () => {
+        try {
+          const leadsRef = collection(db, "leads");
+          // Ordenamos por fecha de creación descendente
+          const q = query(leadsRef, orderBy("createdAt", "desc"));
+          const querySnapshot = await getDocs(q);
+          
+          const leadsData: Lead[] = [];
+          querySnapshot.forEach((doc) => {
+            leadsData.push({ id: doc.id, ...doc.data() } as Lead);
+          });
+          
+          setLeads(leadsData);
+        } catch (error) {
+          console.error("Error obteniendo leads:", error);
+        } finally {
+          setLoadingLeads(false);
+        }
+      };
+
+      fetchLeads();
+    }
+  }, [user]);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -55,25 +99,87 @@ export default function DashboardPage() {
         </button>
       </header>
 
-      {/* Contenido Principal (Placeholder para futuros datos) */}
-      <main className="max-w-6xl mx-auto">
+      {/* Contenido Principal */}
+      <main className="max-w-6xl mx-auto space-y-12">
+        {/* Tarjetas de Métricas */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Tarjeta de Resumen 1 */}
           <div className="bg-kraken-dark border border-kraken-gray rounded-xl p-6">
             <h3 className="text-kraken-muted text-sm uppercase tracking-wider mb-2">Leads Capturados</h3>
-            <p className="text-4xl font-bold text-kraken-gold">0</p>
+            <p className="text-4xl font-bold text-kraken-gold">
+              {loadingLeads ? "..." : leads.length}
+            </p>
           </div>
           
-          {/* Tarjeta de Resumen 2 */}
           <div className="bg-kraken-dark border border-kraken-gray rounded-xl p-6">
             <h3 className="text-kraken-muted text-sm uppercase tracking-wider mb-2">Agentes Activos</h3>
             <p className="text-4xl font-bold text-kraken-gold">1</p>
           </div>
           
-          {/* Tarjeta de Resumen 3 */}
           <div className="bg-kraken-dark border border-kraken-gray rounded-xl p-6">
             <h3 className="text-kraken-muted text-sm uppercase tracking-wider mb-2">Estado del Sistema</h3>
             <p className="text-xl font-bold text-green-500">Óptimo</p>
+          </div>
+        </div>
+
+        {/* Tabla de Leads */}
+        <div className="bg-kraken-dark border border-kraken-gray rounded-xl overflow-hidden">
+          <div className="p-6 border-b border-kraken-gray">
+            <h2 className="text-xl font-bold text-kraken-white">Registro de Leads</h2>
+            <p className="text-sm text-kraken-muted mt-1">Contactos potenciales capturados por el Oráculo.</p>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#111] border-b border-kraken-gray text-xs uppercase tracking-wider text-kraken-gold">
+                  <th className="p-4 font-medium">Nombre / Empresa</th>
+                  <th className="p-4 font-medium">Email</th>
+                  <th className="p-4 font-medium">WhatsApp</th>
+                  <th className="p-4 font-medium">Módulo de Interés</th>
+                  <th className="p-4 font-medium">Estado</th>
+                  <th className="p-4 font-medium">Fecha</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm divide-y divide-kraken-gray/50">
+                {loadingLeads ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-kraken-muted">
+                      Consultando registros...
+                    </td>
+                  </tr>
+                ) : leads.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-kraken-muted">
+                      Aún no hay leads capturados.
+                    </td>
+                  </tr>
+                ) : (
+                  leads.map((lead) => {
+                    // Formatear la fecha si existe (las fechas de Firestore vienen como Timestamp)
+                    const dateStr = lead.createdAt?.toDate 
+                      ? lead.createdAt.toDate().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) 
+                      : 'N/A';
+
+                    return (
+                      <tr key={lead.id} className="hover:bg-[#151515] transition-colors">
+                        <td className="p-4 font-medium text-kraken-white">{lead.name}</td>
+                        <td className="p-4 text-kraken-muted">{lead.email}</td>
+                        <td className="p-4 text-kraken-muted">{lead.whatsapp}</td>
+                        <td className="p-4">
+                          <span className="bg-kraken-gold/10 text-kraken-gold px-2 py-1 rounded-md text-xs border border-kraken-gold/20">
+                            {lead.interest}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <span className="text-kraken-white">{lead.status}</span>
+                        </td>
+                        <td className="p-4 text-kraken-muted">{dateStr}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </main>

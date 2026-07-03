@@ -41,6 +41,7 @@
   - Captura: Nombre, Email, WhatsApp y Módulo de Interés.
   - Guardado en base de datos: Colección `leads` en Firestore con marca de tiempo y estado.
   - Reglas de Seguridad en BD: Buzón cerrado (Solo `create`).
+- **Vista de Leads en Dashboard:** Tabla de datos en `/dashboard` que extrae los leads de Firestore en tiempo real, ordenados por fecha.
 
 ---
 
@@ -50,7 +51,6 @@
 - [ ] **Desarrollo del AI Broker:** Integrar lógica de Agente de IA para el módulo de Turismo (respuestas automáticas, cotizaciones).
 - [ ] **Sistema de Pagos:** Integrar pasarela de pagos (Stripe / Wompi / MercadoPago) para procesar las ventas del Broker.
 - [ ] **Automatización WhatsApp:** Conectar los leads que entran por el formulario con una API de WhatsApp para enviar un mensaje de bienvenida automático.
-- [ ] **Vista de Leads en Dashboard:** Conectar la colección `leads` de Firestore para listarlos en el `/dashboard`.
 
 ---
 
