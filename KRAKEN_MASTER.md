@@ -34,6 +34,8 @@
 - **UI Base Premium:** Configuración de Tailwind v4 y variables CSS corporativas.
 - **Landing Page Interactiva:** Tarjetas con efecto hover (brillo dorado) y diseño full responsive.
 - **Integración Firebase:** SDK inicializado en `src/lib/firebase.ts` (Firestore, Auth, Analytics).
+- **Autenticación (Auth):** Sistema global con `zustand`, `AuthProvider`, y ruta `/login` (Correo/Contraseña).
+- **Dashboard Interno:** Ruta protegida `/dashboard` exclusiva para administradores autenticados.
 - **Captura de Leads (El Oráculo):** 
   - Modal dinámico (`"use client"`) activado por el botón "Iniciar Secuencia".
   - Captura: Nombre, Email, WhatsApp y Módulo de Interés.
@@ -44,14 +46,11 @@
 
 ## 4. Planes de Mejora y Siguientes Pasos (Roadmap)
 
-### Fase Inmediata (Prioridad Alta)
-- [ ] **Autenticación (Auth):** Implementar sistema de login seguro para que los clientes puedan acceder a sus paneles.
-- [ ] **Dashboard Interno:** Crear la vista `/dashboard` donde se visualizarán las analíticas y los leads capturados (solo accesible para administradores).
-
-### Fase de Expansión (Prioridad Media)
+### Fase de Expansión (Prioridad Media/Alta)
 - [ ] **Desarrollo del AI Broker:** Integrar lógica de Agente de IA para el módulo de Turismo (respuestas automáticas, cotizaciones).
 - [ ] **Sistema de Pagos:** Integrar pasarela de pagos (Stripe / Wompi / MercadoPago) para procesar las ventas del Broker.
 - [ ] **Automatización WhatsApp:** Conectar los leads que entran por el formulario con una API de WhatsApp para enviar un mensaje de bienvenida automático.
+- [ ] **Vista de Leads en Dashboard:** Conectar la colección `leads` de Firestore para listarlos en el `/dashboard`.
 
 ---
 
