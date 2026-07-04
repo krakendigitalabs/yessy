@@ -1,0 +1,86 @@
+rules_version = '2';
+
+// ═══════════════════════════════════════════════════════
+// Yessy Kraken — Firestore Security Rules
+// RBAC: Admin (full access) vs Ally (own data) vs Public (leads create)
+// ═══════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── LEADS ───────────────────────────────────────────
+    // Público: cualquiera puede crear (formulario de landing).
+    // Admins tienen acceso total.
+    // Aliados pueden leer y actualizar sus propios leads asignados.
+    match /leads/{leadId} {
+      allow create: if true;
+      allow read: if isAdmin() || isLeadOwner();
+      allow update: if isAdmin() || isLeadOwner();
+      allow delete: if isAdmin();
+    }
+
+    // ─── ALLIES ──────────────────────────────────────────
+    // El propio aliado puede leer su perfil (por UID o por email coincidente).
+    // Solo admins pueden crear, actualizar o eliminar aliados.
+    match /allies/{allyId} {
+      allow read: if isOwner(allyId) || isOwnerByEmail() || isAdmin();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ─── PLANS ───────────────────────────────────────────
+    // Lectura pública (para mostrar precios en la landing).
+    // Solo admins pueden modificar planes.
+    match /plans/{planId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ─── ORDERS ──────────────────────────────────────────
+    // El aliado puede leer sus propias órdenes.
+    // Cualquier usuario autenticado puede crear una orden (compra).
+    // Solo admins pueden actualizar estados (webhook de pago).
+    // Nadie puede eliminar órdenes (auditoría).
+    match /orders/{orderId} {
+      allow read: if isOrderOwner() || isAdmin();
+      allow create: if request.auth != null;
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FUNCIONES HELPER
+    // ═══════════════════════════════════════════════════════
+
+    // Verifica si el usuario autenticado tiene rol "admin" en la colección allies
+    function isAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/allies/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/allies/$(request.auth.uid)).data.role == "admin";
+    }
+
+    // Verifica si el documento pertenece al usuario autenticado
+    // (para allies, donde el doc ID = Auth UID)
+    function isOwner(docId) {
+      return request.auth != null && request.auth.uid == docId;
+    }
+
+    // Verifica si el email del usuario autenticado coincide con el email del perfil de aliado
+    function isOwnerByEmail() {
+      return request.auth != null && 
+        request.auth.token.email != null &&
+        resource.data.email == request.auth.token.email;
+    }
+
+    // Verifica si la orden pertenece al usuario autenticado
+    function isOrderOwner() {
+      return request.auth != null &&
+        resource.data.allyId == request.auth.uid;
+    }
+    // Verifica si el lead está asignado al usuario autenticado
+    function isLeadOwner() {
+      return request.auth != null &&
+        resource.data.assignedAllyId == request.auth.uid;
+    }
+  }
+}

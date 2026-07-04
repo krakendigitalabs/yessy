@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import Link from "next/link";
 
 export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -56,6 +57,16 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-kraken-black flex flex-col items-center justify-center p-8 relative overflow-hidden">
       
+      {/* Botón de Login (Escondido elegantemente en la esquina) */}
+      <div className="absolute top-6 right-8 z-50">
+        <Link 
+          href="/login" 
+          className="text-kraken-muted hover:text-kraken-white text-sm font-medium tracking-wider uppercase transition-colors"
+        >
+          Acceso Usuarios
+        </Link>
+      </div>
+
       {/* Efecto de luz dorada sutil en el fondo */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[500px] bg-kraken-gold/5 blur-[120px] rounded-full pointer-events-none" />
 
