@@ -1,4 +1,3 @@
-cat << 'EOF' > src / lib / ai - router.ts
 export interface AIRequest {
     systemPrompt: string;
     userPrompt: string;
@@ -104,4 +103,3 @@ export async function runAgentCompletion(req: AIRequest): Promise<AIResponse> {
 
     return callGemini(req);
 }
-EOF

@@ -74,4 +74,3 @@ export interface FinancialSplit {
     netProfit10: number;   // 10% Utilidad neta / Junta de Socios
     createdAt: string;
 }
-EOF
