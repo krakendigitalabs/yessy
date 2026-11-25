@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebase-admin";
+import { getAdminDb } from "@/lib/firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
 
 // ═══════════════════════════════════════════════════════
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const docRef = adminDb.collection("allies").doc(uid);
+    const docRef = getAdminDb().collection("allies").doc(uid);
 
     // Verificar si ya existe
     const existing = await docRef.get();
