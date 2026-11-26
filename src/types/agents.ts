@@ -31,12 +31,41 @@ export type AgentRole =
 
 export type AgentPlanTier = "tentaculo" | "depredador" | "kraken" | "ecosistema";
 
-export type TaskStatus =
-    | "queued"
-    | "running"
-    | "awaiting_approval"
-    | "completed"
-    | "failed";
+export type IntelligenceTier = "fast" | "balanced" | "deep";
+
+export type CapabilityActionType =
+    | "read_metrics"
+    | "simulate_finance"
+    | "delegate_task"
+    | "audit_security_rules"
+    | "generate_copy_or_script"
+    | "draft_legal_policy"
+    | "wellness_protocol";
+
+export interface AgentSkill {
+    id: string;
+    name: string;
+    domain: AgentDivision | "cross_division";
+    summary: string;
+    instructions: string;
+    checklist: string[];
+}
+
+export interface AgentCapability {
+    id: string;
+    name: string;
+    action: CapabilityActionType;
+    description: string;
+    requiresApproval: boolean;
+}
+
+export interface IntelligenceProfile {
+    tier: IntelligenceTier;
+    preferredModel?: string;
+    temperature: number;
+    maxOutputTokens: number;
+    rationale: string;
+}
 
 export interface AgentDefinition {
     role: AgentRole;
@@ -46,12 +75,22 @@ export interface AgentDefinition {
     minPlan: AgentPlanTier;
     requiresHumanApproval: boolean;
     description: string;
+    intelligence: IntelligenceProfile;
+    skillIds: string[];
+    capabilityIds: string[];
     systemPrompt: string;
 }
 
+export type TaskStatus =
+    | "queued"
+    | "running"
+    | "awaiting_approval"
+    | "completed"
+    | "failed";
+
 export interface AgentTask {
     id: string;
-    tenantId: string; // "kraken-hq" para uso interno, o ID del cliente comprador
+    tenantId: string;
     assignedTo: AgentRole;
     requestedBy: AgentRole | "human_ceo";
     objective: string;
@@ -68,9 +107,9 @@ export interface FinancialSplit {
     orderId: string;
     grossAmount: number;
     currency: "COP" | "USD";
-    operation50: number;   // 50% Operación y entrega
-    taxReserve20: number;  // 20% Impuestos y reserva legal
-    investment20: number;  // 20% Fondo de innovación e inversión
-    netProfit10: number;   // 10% Utilidad neta / Junta de Socios
+    operation50: number;
+    taxReserve20: number;
+    investment20: number;
+    netProfit10: number;
     createdAt: string;
 }

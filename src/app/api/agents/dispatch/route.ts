@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { runAgentCompletion } from "@/lib/ai-router";
 import { AGENT_REGISTRY } from "@/features/agents/registry";
+import { buildEnrichedSystemPrompt } from "@/features/agents/skills";
+import { persistAgentTask } from "@/features/agents/orchestrator";
 import type { AgentRole, AgentTask } from "@/types/agents";
 
 interface DispatchBody {
     role?: string;
     objective?: string;
     tenantId?: string;
+    requestedBy?: AgentRole | "human_ceo";
+    inputPayload?: Record<string, unknown>;
 }
 
 export async function POST(request: Request) {
@@ -31,25 +35,31 @@ export async function POST(request: Request) {
 
         const agent = AGENT_REGISTRY[role];
         const createdAt = new Date().toISOString();
+        const enrichedSystemPrompt = buildEnrichedSystemPrompt(agent);
 
         const aiResponse = await runAgentCompletion({
-            systemPrompt: agent.systemPrompt,
+            systemPrompt: enrichedSystemPrompt,
             userPrompt: objective,
+            tier: agent.intelligence.tier,
+            temperature: agent.intelligence.temperature,
+            maxOutputTokens: agent.intelligence.maxOutputTokens,
         });
 
         const task: AgentTask = {
-            id: `task_${Date.now()}`,
+            id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             tenantId: body.tenantId?.trim() || "kraken-hq",
             assignedTo: agent.role,
-            requestedBy: "human_ceo",
+            requestedBy: body.requestedBy ?? "human_ceo",
             objective,
-            inputPayload: {},
+            inputPayload: body.inputPayload ?? {},
             outputResult: aiResponse.content,
             status: agent.requiresHumanApproval ? "awaiting_approval" : "completed",
             requiresApproval: agent.requiresHumanApproval,
             createdAt,
             completedAt: new Date().toISOString(),
         };
+
+        await persistAgentTask(task);
 
         return NextResponse.json({
             ok: true,
@@ -59,6 +69,9 @@ export async function POST(request: Request) {
                 title: agent.title,
                 division: agent.division,
                 minPlan: agent.minPlan,
+                intelligence: agent.intelligence,
+                skillIds: agent.skillIds,
+                capabilityIds: agent.capabilityIds,
                 requiresHumanApproval: agent.requiresHumanApproval,
             },
             provider: aiResponse.provider,
