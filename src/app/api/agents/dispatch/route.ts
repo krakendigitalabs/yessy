@@ -7,7 +7,6 @@ interface DispatchBody {
     role?: string;
     objective?: string;
     tenantId?: string;
-    preferLocal?: boolean;
 }
 
 export async function POST(request: Request) {
@@ -36,7 +35,6 @@ export async function POST(request: Request) {
         const aiResponse = await runAgentCompletion({
             systemPrompt: agent.systemPrompt,
             userPrompt: objective,
-            preferLocal: Boolean(body.preferLocal),
         });
 
         const task: AgentTask = {
@@ -45,7 +43,7 @@ export async function POST(request: Request) {
             assignedTo: agent.role,
             requestedBy: "human_ceo",
             objective,
-            inputPayload: { preferLocal: Boolean(body.preferLocal) },
+            inputPayload: {},
             outputResult: aiResponse.content,
             status: agent.requiresHumanApproval ? "awaiting_approval" : "completed",
             requiresApproval: agent.requiresHumanApproval,

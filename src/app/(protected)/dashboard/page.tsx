@@ -1,54 +1,81 @@
 "use client";
 
-import { useState } from "react";
-import { useAuthStore } from "@/store/authStore";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/authStore";
 import type { Lead } from "@/types/models";
 import { useAllLeadsRealtime } from "@/features/broker/hooks/useLeads";
 import { useAllies } from "@/features/broker/hooks/useAllies";
 import { AssignLeadModal } from "@/features/broker/components/AssignLeadModal";
 import { LeadStatusBadge } from "@/features/broker/components/LeadStatusBadge";
 
-// ═══════════════════════════════════════════════════════
-// Dashboard — Panel de Control Kraken (Admin)
-// Protegido por (protected)/layout.tsx
-// ═══════════════════════════════════════════════════════
+function formatLeadDate(createdAt: unknown): string {
+  if (
+    createdAt &&
+    typeof createdAt === "object" &&
+    "toDate" in createdAt &&
+    typeof (createdAt as { toDate: unknown }).toDate === "function"
+  ) {
+    return (createdAt as { toDate: () => Date })
+      .toDate()
+      .toLocaleDateString("es-ES", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+  }
+  if (typeof createdAt === "string") {
+    const parsed = new Date(createdAt);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString("es-ES", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+    }
+  }
+  return "N/A";
+}
 
 export default function DashboardPage() {
   const { user, profile } = useAuthStore();
   const router = useRouter();
 
-  // Hooks del Feature Broker (tiempo real)
+  // Protección RBAC: si no es admin, redirige a /portal
+  useEffect(() => {
+    if (profile && profile.role !== "admin") {
+      router.replace("/portal");
+    }
+  }, [profile, router]);
+
   const { leads, loading: loadingLeads } = useAllLeadsRealtime();
   const { allies, loading: loadingAllies } = useAllies();
-
-  // Modal de asignación
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
 
-  // Mapa de aliados para mostrar nombre en la tabla
-  const allyMap = Object.fromEntries(allies.map((a) => [a.uid, a.displayName]));
+  const allyMap = useMemo(
+    () => Object.fromEntries(allies.map((a) => [a.uid, a.displayName])),
+    [allies],
+  );
 
   const handleLogout = async () => {
     await signOut(auth);
-    router.push("/login");
+    router.replace("/login");
   };
 
   const handleAssigned = (leadId: string, allyId: string, allyName: string) => {
     console.log(`Lead ${leadId} asignado a ${allyName} (${allyId})`);
-    // El listener onSnapshot actualizará la tabla automáticamente
   };
 
-  // Métricas calculadas
   const leadsNuevos = leads.filter((l) => l.status === "nuevo").length;
   const leadsConvertidos = leads.filter((l) => l.status === "convertido").length;
   const alliesActivos = allies.filter((a) => a.role === "ally").length;
 
   return (
     <div className="min-h-screen bg-kraken-black text-kraken-white p-6">
-      {/* Header del Dashboard */}
-      <header className="max-w-7xl mx-auto flex justify-between items-center border-b border-kraken-gray pb-5 mb-8">
+      <header className="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-4 border-b border-kraken-gray pb-5 mb-8">
         <div>
           <h1 className="text-2xl font-bold">
             <span className="text-kraken-white">Panel </span>
@@ -70,16 +97,25 @@ export default function DashboardPage() {
             )}
           </p>
         </div>
-        <button
-          onClick={handleLogout}
-          className="border border-kraken-gray px-4 py-2 rounded-lg text-sm text-kraken-muted hover:text-kraken-white hover:border-kraken-gold/40 transition-colors cursor-pointer"
-        >
-          Desconectar
-        </button>
+
+        <div className="flex items-center gap-3">
+          <Link
+            href="/agents"
+            className="bg-kraken-gold text-kraken-black px-4 py-2 rounded-lg text-sm font-bold hover:brightness-110 transition-all"
+          >
+            Sala de 19 Agentes IA →
+          </Link>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="border border-kraken-gray px-4 py-2 rounded-lg text-sm text-kraken-muted hover:text-kraken-white hover:border-kraken-gold/40 transition-colors cursor-pointer"
+          >
+            Desconectar
+          </button>
+        </div>
       </header>
 
       <main className="max-w-7xl mx-auto space-y-8">
-        {/* Tarjetas de Métricas */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-kraken-dark border border-kraken-gray rounded-xl p-5">
             <h3 className="text-kraken-muted text-xs uppercase tracking-wider mb-2">
@@ -115,7 +151,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Tabla de Leads */}
         <div className="bg-kraken-dark border border-kraken-gray rounded-xl overflow-hidden">
           <div className="p-5 border-b border-kraken-gray flex justify-between items-center">
             <div>
@@ -164,20 +199,11 @@ export default function DashboardPage() {
                   </tr>
                 ) : (
                   leads.map((lead) => {
-                    const createdAt = lead.createdAt as any;
-                    const dateStr = createdAt?.toDate
-                      ? createdAt
-                          .toDate()
-                          .toLocaleDateString("es-ES", {
-                            day: "2-digit",
-                            month: "short",
-                            year: "numeric",
-                          })
-                      : "N/A";
-
+                    const dateStr = formatLeadDate(lead.createdAt);
                     const assignedName = lead.assignedAllyId
                       ? allyMap[lead.assignedAllyId] ?? "Aliado"
                       : null;
+                    const whatsappDigits = (lead.whatsapp ?? "").replace(/\D/g, "");
 
                     return (
                       <tr
@@ -189,14 +215,18 @@ export default function DashboardPage() {
                         </td>
                         <td className="p-4 text-kraken-muted">{lead.email}</td>
                         <td className="p-4 text-kraken-muted">
-                          <a
-                            href={`https://wa.me/${lead.whatsapp.replace(/\D/g, "")}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="hover:text-green-400 transition-colors"
-                          >
-                            {lead.whatsapp}
-                          </a>
+                          {whatsappDigits ? (
+                            <a
+                              href={`https://wa.me/${whatsappDigits}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="hover:text-green-400 transition-colors"
+                            >
+                              {lead.whatsapp}
+                            </a>
+                          ) : (
+                            <span>—</span>
+                          )}
                         </td>
                         <td className="p-4">
                           <span className="bg-kraken-gold/10 text-kraken-gold px-2 py-1 rounded-md text-xs border border-kraken-gold/20">
@@ -222,6 +252,7 @@ export default function DashboardPage() {
                         </td>
                         <td className="p-4">
                           <button
+                            type="button"
                             onClick={() => setSelectedLead(lead)}
                             className="px-3 py-1.5 rounded-lg text-xs border border-kraken-gold/40 text-kraken-gold hover:bg-kraken-gold hover:text-kraken-black transition-all cursor-pointer font-medium"
                           >
@@ -238,7 +269,6 @@ export default function DashboardPage() {
         </div>
       </main>
 
-      {/* Modal de Asignación */}
       {selectedLead && (
         <AssignLeadModal
           lead={selectedLead}
