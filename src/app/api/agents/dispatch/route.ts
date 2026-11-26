@@ -3,6 +3,12 @@ import { runAgentCompletion } from "@/lib/ai-router";
 import { AGENT_REGISTRY } from "@/features/agents/registry";
 import { buildEnrichedSystemPrompt } from "@/features/agents/skills";
 import { persistAgentTask } from "@/features/agents/orchestrator";
+import {
+    canAccessAgentByPlan,
+    isSuperAdmin,
+    normalizePlan,
+    normalizeRole,
+} from "@/lib/privileges";
 import type { AgentRole, AgentTask } from "@/types/agents";
 
 interface DispatchBody {
@@ -11,6 +17,42 @@ interface DispatchBody {
     tenantId?: string;
     requestedBy?: AgentRole | "human_ceo";
     inputPayload?: Record<string, unknown>;
+    actorUid?: string;
+    actorRole?: string;
+    actorPlan?: string;
+}
+
+interface AdminModuleShape {
+    getFirebaseAdminFirestore?: () => FirebaseFirestore.Firestore;
+    getFirebaseAdminDb?: () => FirebaseFirestore.Firestore;
+    adminDb?: FirebaseFirestore.Firestore;
+    db?: FirebaseFirestore.Firestore;
+}
+
+async function resolveActorFromFirestore(uid?: string): Promise<{
+    role?: string;
+    plan?: string;
+} | null> {
+    if (!uid) return null;
+    try {
+        const adminMod = (await import("@/lib/firebase-admin")) as AdminModuleShape;
+        const firestore =
+            (typeof adminMod.getFirebaseAdminFirestore === "function" &&
+                adminMod.getFirebaseAdminFirestore()) ||
+            (typeof adminMod.getFirebaseAdminDb === "function" &&
+                adminMod.getFirebaseAdminDb()) ||
+            adminMod.adminDb ||
+            adminMod.db ||
+            null;
+
+        if (!firestore) return null;
+        const snap = await firestore.collection("allies").doc(uid).get();
+        if (!snap.exists) return null;
+        const data = snap.data() as { role?: string; plan?: string } | undefined;
+        return data ? { role: data.role, plan: data.plan } : null;
+    } catch {
+        return null;
+    }
 }
 
 export async function POST(request: Request) {
@@ -34,6 +76,34 @@ export async function POST(request: Request) {
         }
 
         const agent = AGENT_REGISTRY[role];
+
+        // Verificación de privilegios y gating por plan
+        const dbActor = await resolveActorFromFirestore(body.actorUid?.trim());
+        const effectiveRole = normalizeRole(dbActor?.role ?? body.actorRole ?? "admin");
+        const effectivePlan = normalizePlan(dbActor?.plan ?? body.actorPlan ?? "tentaculo");
+
+        const allowed = canAccessAgentByPlan({
+            role: effectiveRole,
+            userPlan: effectivePlan,
+            agentMinPlan: agent.minPlan,
+        });
+
+        if (!allowed) {
+            return NextResponse.json(
+                {
+                    ok: false,
+                    code: "PLAN_UPGRADE_REQUIRED",
+                    error: `El agente ${agent.name} requiere el plan "${agent.minPlan.toUpperCase()}". Tu plan actual es "${effectivePlan.toUpperCase()}".`,
+                },
+                { status: 403 },
+            );
+        }
+
+        // Aislamiento multi-tenant: un comercio siempre escribe en su propio tenantId (su UID)
+        const resolvedTenantId = isSuperAdmin(effectiveRole)
+            ? body.tenantId?.trim() || "kraken-hq"
+            : body.actorUid?.trim() || body.tenantId?.trim() || "commerce-unknown";
+
         const createdAt = new Date().toISOString();
         const enrichedSystemPrompt = buildEnrichedSystemPrompt(agent);
 
@@ -47,7 +117,7 @@ export async function POST(request: Request) {
 
         const task: AgentTask = {
             id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            tenantId: body.tenantId?.trim() || "kraken-hq",
+            tenantId: resolvedTenantId,
             assignedTo: agent.role,
             requestedBy: body.requestedBy ?? "human_ceo",
             objective,
