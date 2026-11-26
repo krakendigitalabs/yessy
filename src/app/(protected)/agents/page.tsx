@@ -1,10 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { AGENT_LIST, AGENT_REGISTRY } from "@/features/agents/registry";
 import { useAuthStore } from "@/store/authStore";
-import { AGENT_LIST } from "@/features/agents/registry";
-import type { AgentDefinition, AgentDivision, AgentTask } from "@/types/agents";
+import type {
+    AgentDefinition,
+    AgentDivision,
+    AgentTask,
+    TaskStatus,
+} from "@/types/agents";
 
 type DivisionFilter = "all" | AgentDivision;
 
@@ -12,8 +17,8 @@ interface ExecutionEntry {
     task: AgentTask;
     agentName: string;
     agentTitle: string;
-    provider: "gemini";
-    model: string;
+    provider?: "ollama" | "gemini";
+    model?: string;
 }
 
 const DIVISION_LABELS: Record<DivisionFilter, string> = {
@@ -31,99 +36,193 @@ const PLAN_BADGES: Record<AgentDefinition["minPlan"], string> = {
     ecosistema: "border-purple-500/50 bg-purple-500/15 text-purple-200",
 };
 
-const DEFAULT_AGENT =
-    AGENT_LIST.find((a) => a.role === "yessy_core") ?? AGENT_LIST[0];
+const STATUS_BADGES: Record<TaskStatus, { label: string; cls: string }> = {
+    queued: { label: "En cola", cls: "border-zinc-500/40 bg-zinc-500/10 text-zinc-300" },
+    running: { label: "Ejecutando", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+    awaiting_approval: {
+        label: "Pendiente aprobación",
+        cls: "border-amber-500/50 bg-amber-500/15 text-amber-200",
+    },
+    completed: {
+        label: "Completada",
+        cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
+    },
+    failed: {
+        label: "Rechazada / Error",
+        cls: "border-red-500/50 bg-red-500/10 text-red-300",
+    },
+};
+
+function mapTasksToEntries(tasks: AgentTask[]): ExecutionEntry[] {
+    return tasks.map((task) => {
+        const def = AGENT_REGISTRY[task.assignedTo];
+        return {
+            task,
+            agentName: def?.name ?? task.assignedTo,
+            agentTitle: def?.title ?? "Especialista Kraken",
+        };
+    });
+}
 
 export default function AgentsCommandPage() {
-    const { user, profile } = useAuthStore();
+    const { user } = useAuthStore();
     const [division, setDivision] = useState<DivisionFilter>("all");
-    const [selectedAgent, setSelectedAgent] = useState<AgentDefinition>(DEFAULT_AGENT);
+    const [selectedAgent, setSelectedAgent] = useState<AgentDefinition>(
+        AGENT_LIST.find((a) => a.role === "yessy_core") ?? AGENT_LIST[0],
+    );
     const [objective, setObjective] = useState("");
     const [loading, setLoading] = useState(false);
+    const [loadingHistory, setLoadingHistory] = useState(true);
+    const [actionTaskId, setActionTaskId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [history, setHistory] = useState<ExecutionEntry[]>([]);
 
-    const backHref = profile?.role === "admin" ? "/dashboard" : "/portal";
-    const backLabel =
-        profile?.role === "admin" ? "← Volver al Dashboard" : "← Volver al Portal";
+    const loadPersistedHistory = useCallback(async () => {
+        setLoadingHistory(true);
+        try {
+            const res = await fetch("/api/agents/tasks?tenantId=kraken-hq&limit=30", {
+                cache: "no-store",
+            });
+            const data = (await res.json()) as { ok?: boolean; tasks?: AgentTask[] };
+            if (res.ok && data.ok && Array.isArray(data.tasks)) {
+                setHistory(mapTasksToEntries(data.tasks));
+            }
+        } catch (err) {
+            console.error("Error cargando historial de tareas:", err);
+        } finally {
+            setLoadingHistory(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        void loadPersistedHistory();
+    }, [loadPersistedHistory]);
 
     const filteredAgents = useMemo(() => {
         if (division === "all") return AGENT_LIST;
         return AGENT_LIST.filter((a) => a.division === division);
     }, [division]);
 
-    async function handleDispatch(e: React.FormEvent) {
+    const handleDispatch = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!objective.trim() || loading) return;
-
-        setLoading(true);
         setError(null);
 
+        const trimmed = objective.trim();
+        if (!trimmed) {
+            setError("Escribe una instrucción o tarea para el agente.");
+            return;
+        }
+
+        setLoading(true);
         try {
             const res = await fetch("/api/agents/dispatch", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     role: selectedAgent.role,
-                    objective: objective.trim(),
-                    tenantId:
-                        profile?.role === "admin"
-                            ? "kraken-hq"
-                            : (profile?.uid ?? user?.uid ?? "kraken-hq"),
+                    objective: trimmed,
+                    tenantId: "kraken-hq",
                 }),
             });
 
-            const data = await res.json();
+            const data = (await res.json()) as {
+                ok?: boolean;
+                error?: string;
+                task?: AgentTask;
+                provider?: "ollama" | "gemini";
+                model?: string;
+            };
 
-            if (!res.ok || !data.ok) {
-                throw new Error(data.error || "No se pudo ejecutar el agente.");
+            if (!res.ok || !data.ok || !data.task) {
+                throw new Error(data.error || "No se pudo ejecutar la tarea.");
             }
 
+            const newEntry: ExecutionEntry = {
+                task: data.task,
+                agentName: selectedAgent.name,
+                agentTitle: selectedAgent.title,
+                provider: data.provider,
+                model: data.model,
+            };
+
             setHistory((prev) => [
-                {
-                    task: data.task as AgentTask,
-                    agentName: selectedAgent.name,
-                    agentTitle: selectedAgent.title,
-                    provider: data.provider,
-                    model: data.model,
-                },
-                ...prev,
+                newEntry,
+                ...prev.filter((item) => item.task.id !== data.task!.id),
             ]);
             setObjective("");
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Error de conexión.");
+            setError(err instanceof Error ? err.message : "Error al despachar tarea.");
         } finally {
             setLoading(false);
         }
-    }
+    };
+
+    const handleApproval = async (taskId: string, decision: "approve" | "reject") => {
+        setError(null);
+        setActionTaskId(taskId);
+        try {
+            const res = await fetch("/api/agents/tasks", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    taskId,
+                    decision,
+                    approvedBy: user?.email || "human_ceo",
+                }),
+            });
+
+            const data = (await res.json()) as {
+                ok?: boolean;
+                error?: string;
+                task?: AgentTask;
+            };
+
+            if (!res.ok || !data.ok || !data.task) {
+                throw new Error(data.error || "No se pudo actualizar la aprobación.");
+            }
+
+            setHistory((prev) =>
+                prev.map((entry) =>
+                    entry.task.id === taskId ? { ...entry, task: data.task! } : entry,
+                ),
+            );
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Error al actualizar tarea.");
+        } finally {
+            setActionTaskId(null);
+        }
+    };
 
     return (
-        <main className="min-h-screen bg-[#050505] text-[#F8F9FA] px-4 py-8 sm:px-6 lg:px-10">
-            <div className="mx-auto max-w-7xl space-y-8">
-                <header className="flex flex-col gap-4 border-b border-[#D4AF37]/20 pb-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-h-screen bg-[#050505] text-[#F8F9FA] p-6">
+            <div className="max-w-7xl mx-auto space-y-8">
+                <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
                     <div>
-                        <p className="text-xs font-bold uppercase tracking-[0.25em] text-[#D4AF37]">
-                            Kraken OS · Fuerza Laboral Autónoma
+                        <p className="text-xs uppercase tracking-[0.2em] text-[#D4AF37] font-semibold">
+                            Kraken OS · Sala de Comando
                         </p>
-                        <h1 className="mt-1 text-3xl font-black tracking-tight text-[#F8F9FA] sm:text-4xl">
-                            Sala de Comando — 19 Agentes
+                        <h1 className="text-2xl md:text-3xl font-bold mt-1">
+                            19 Agentes <span className="text-[#D4AF37]">Autónomos</span>
                         </h1>
-                        <p className="mt-1 text-sm text-neutral-400">
-                            Selecciona cualquier puesto corporativo, asigna un objetivo y ejecuta en tiempo real con Gemini.
-                        </p>
                     </div>
-
                     <div className="flex items-center gap-3">
-                        <Link
-                            href={backHref}
-                            className="rounded-xl border border-[#D4AF37]/30 bg-[#0A0A0A] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#F3E5AB] transition hover:border-[#D4AF37] hover:bg-[#D4AF37]/10"
+                        <button
+                            type="button"
+                            onClick={() => void loadPersistedHistory()}
+                            className="border border-white/15 px-3.5 py-2 rounded-lg text-xs text-zinc-300 hover:border-[#D4AF37]/50 hover:text-white transition-colors cursor-pointer"
                         >
-                            {backLabel}
+                            {loadingHistory ? "Sincronizando..." : "Actualizar historial"}
+                        </button>
+                        <Link
+                            href="/dashboard"
+                            className="border border-white/15 px-4 py-2 rounded-lg text-sm text-zinc-300 hover:border-[#D4AF37]/50 hover:text-white transition-colors"
+                        >
+                            ← Volver al Dashboard
                         </Link>
                     </div>
                 </header>
 
-                <nav aria-label="Filtrar agentes por división" className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2">
                     {(Object.keys(DIVISION_LABELS) as DivisionFilter[]).map((key) => {
                         const active = division === key;
                         return (
@@ -131,19 +230,19 @@ export default function AgentsCommandPage() {
                                 key={key}
                                 type="button"
                                 onClick={() => setDivision(key)}
-                                className={`rounded-full border px-4 py-2 text-xs font-bold tracking-wide transition cursor-pointer ${active
-                                        ? "border-[#D4AF37] bg-[#D4AF37] text-[#050505]"
-                                        : "border-white/10 bg-[#0A0A0A] text-neutral-300 hover:border-[#D4AF37]/50 hover:text-[#F3E5AB]"
+                                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${active
+                                        ? "bg-[#D4AF37] text-[#050505] border-[#D4AF37]"
+                                        : "bg-[#0A0A0A] text-zinc-300 border-white/10 hover:border-[#D4AF37]/40"
                                     }`}
                             >
                                 {DIVISION_LABELS[key]}
                             </button>
                         );
                     })}
-                </nav>
+                </div>
 
-                <div className="grid gap-8 lg:grid-cols-12">
-                    <section className="lg:col-span-7 grid gap-3 sm:grid-cols-2 content-start">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[620px] overflow-y-auto pr-1">
                         {filteredAgents.map((agent) => {
                             const isSelected = selectedAgent.role === agent.role;
                             return (
@@ -151,156 +250,158 @@ export default function AgentsCommandPage() {
                                     key={agent.role}
                                     type="button"
                                     onClick={() => setSelectedAgent(agent)}
-                                    className={`flex flex-col justify-between rounded-2xl border p-4 text-left transition cursor-pointer ${isSelected
-                                            ? "border-[#D4AF37] bg-[#D4AF37]/10 shadow-[0_0_25px_rgba(212,175,55,0.18)]"
-                                            : "border-white/10 bg-[#0A0A0A] hover:border-[#D4AF37]/40"
+                                    className={`text-left p-4 rounded-xl border transition-all cursor-pointer ${isSelected
+                                            ? "bg-[#120F07] border-[#D4AF37] shadow-[0_0_20px_rgba(212,175,55,0.12)]"
+                                            : "bg-[#0A0A0A] border-white/10 hover:border-[#D4AF37]/40"
                                         }`}
                                 >
-                                    <div>
-                                        <div className="flex items-start justify-between gap-2">
-                                            <div>
-                                                <h2 className="text-base font-extrabold text-[#F8F9FA]">
-                                                    {agent.name}
-                                                </h2>
-                                                <p className="text-xs font-semibold text-[#D4AF37]">
-                                                    {agent.title}
-                                                </p>
-                                            </div>
-                                            <span
-                                                className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${PLAN_BADGES[agent.minPlan]}`}
-                                            >
-                                                {agent.minPlan}
-                                            </span>
-                                        </div>
-
-                                        <p className="mt-2.5 text-xs leading-relaxed text-neutral-400">
-                                            {agent.description}
-                                        </p>
-                                    </div>
-
-                                    <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-2.5 text-[10px] uppercase tracking-wider text-neutral-500">
-                                        <span>
-                                            {agent.requiresHumanApproval
-                                                ? "Requiere aprobación CEO"
-                                                : "Ejecución autónoma"}
+                                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                                        <span className="font-bold text-sm text-white">{agent.name}</span>
+                                        <span
+                                            className={`text-[10px] uppercase px-2 py-0.5 rounded border ${PLAN_BADGES[agent.minPlan]
+                                                }`}
+                                        >
+                                            {agent.minPlan}
                                         </span>
-                                        {isSelected && (
-                                            <span className="font-bold text-[#F3E5AB]">● Activo</span>
-                                        )}
                                     </div>
+                                    <p className="text-xs text-[#D4AF37] font-medium mb-1.5">{agent.title}</p>
+                                    <p className="text-xs text-zinc-400 line-clamp-2">{agent.description}</p>
                                 </button>
                             );
                         })}
-                    </section>
+                    </div>
 
-                    <section className="lg:col-span-5 space-y-6">
-                        <div className="rounded-2xl border border-[#D4AF37]/40 bg-[#0A0A0A] p-5 shadow-[0_0_30px_rgba(212,175,55,0.08)]">
-                            <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
-                                <div>
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-[#D4AF37]">
-                                        Agente Seleccionado
-                                    </p>
-                                    <h2 className="text-xl font-black text-[#F8F9FA]">
-                                        {selectedAgent.name}{" "}
-                                        <span className="text-sm font-medium text-neutral-400">
-                                            · {selectedAgent.title}
-                                        </span>
-                                    </h2>
-                                </div>
+                    <div className="lg:col-span-7 bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 space-y-5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-4">
+                            <div>
+                                <h2 className="text-lg font-bold text-white">
+                                    {selectedAgent.name}{" "}
+                                    <span className="text-sm font-normal text-[#D4AF37]">
+                                        — {selectedAgent.title}
+                                    </span>
+                                </h2>
+                                <p className="text-xs text-zinc-400 mt-1">{selectedAgent.description}</p>
+                                <p className="text-[11px] text-zinc-500 mt-1">
+                                    Inteligencia: <span className="text-zinc-300">{selectedAgent.intelligence.tier}</span> ·{" "}
+                                    {selectedAgent.skillIds.length} skills · {selectedAgent.capabilityIds.length} capacidades
+                                </p>
                             </div>
-
-                            <form onSubmit={handleDispatch} className="mt-4 space-y-4">
-                                <div>
-                                    <label
-                                        htmlFor="agent-objective"
-                                        className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-neutral-300"
-                                    >
-                                        Instrucción u objetivo
-                                    </label>
-                                    <textarea
-                                        id="agent-objective"
-                                        rows={4}
-                                        value={objective}
-                                        onChange={(e) => setObjective(e.target.value)}
-                                        placeholder={`Ej: ${selectedAgent.name}, prepara un plan de acción para hoy...`}
-                                        className="w-full rounded-xl border border-white/15 bg-[#050505] p-3 text-sm text-[#F8F9FA] placeholder:text-neutral-500 focus:border-[#D4AF37] focus:outline-none"
-                                        disabled={loading}
-                                    />
-                                </div>
-
-                                {error && (
-                                    <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
-                                        {error}
-                                    </div>
-                                )}
-
-                                <button
-                                    type="submit"
-                                    disabled={loading || !objective.trim()}
-                                    className="w-full rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#F3E5AB] px-4 py-3 text-sm font-black uppercase tracking-wider text-[#050505] transition hover:brightness-110 disabled:opacity-50 cursor-pointer"
-                                >
-                                    {loading
-                                        ? `Ejecutando ${selectedAgent.name}...`
-                                        : `Despachar a ${selectedAgent.name}`}
-                                </button>
-                            </form>
-                        </div>
-
-                        <div className="space-y-3">
-                            <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-400">
-                                Resultados de la Sesión ({history.length})
-                            </h3>
-
-                            {history.length === 0 ? (
-                                <div className="rounded-2xl border border-dashed border-white/10 bg-[#0A0A0A]/50 p-6 text-center text-xs text-neutral-500">
-                                    Aún no has ejecutado tareas en esta sesión. Selecciona un agente arriba y envía tu primera orden.
-                                </div>
-                            ) : (
-                                history.map((entry) => (
-                                    <article
-                                        key={entry.task.id}
-                                        className="rounded-2xl border border-white/10 bg-[#0A0A0A] p-4 space-y-3"
-                                    >
-                                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-2">
-                                            <div>
-                                                <span className="text-sm font-extrabold text-[#F3E5AB]">
-                                                    {entry.agentName}
-                                                </span>
-                                                <span className="ml-2 text-xs text-neutral-400">
-                                                    {entry.agentTitle}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center gap-2 text-[10px] font-bold uppercase">
-                                                <span className="rounded-md border border-white/15 bg-white/5 px-2 py-0.5 text-neutral-300">
-                                                    {entry.provider} · {entry.model}
-                                                </span>
-                                                <span
-                                                    className={`rounded-md px-2 py-0.5 ${entry.task.status === "awaiting_approval"
-                                                            ? "bg-amber-500/20 text-amber-300"
-                                                            : "bg-emerald-500/20 text-emerald-300"
-                                                        }`}
-                                                >
-                                                    {entry.task.status === "awaiting_approval"
-                                                        ? "Pendiente CEO"
-                                                        : "Completada"}
-                                                </span>
-                                            </div>
-                                        </div>
-
-                                        <p className="text-xs italic text-neutral-400">
-                                            “{entry.task.objective}”
-                                        </p>
-
-                                        <div className="whitespace-pre-wrap rounded-xl bg-[#050505] p-3 text-sm leading-relaxed text-neutral-100 border border-white/5">
-                                            {entry.task.outputResult}
-                                        </div>
-                                    </article>
-                                ))
+                            {selectedAgent.requiresHumanApproval && (
+                                <span className="text-[11px] px-2.5 py-1 rounded bg-amber-500/15 border border-amber-500/40 text-amber-200">
+                                    Requiere aprobación
+                                </span>
                             )}
                         </div>
-                    </section>
+
+                        <form onSubmit={handleDispatch} className="space-y-4">
+                            <div>
+                                <label className="block text-xs uppercase tracking-wider text-zinc-400 mb-2">
+                                    Instrucción u objetivo
+                                </label>
+                                <textarea
+                                    rows={4}
+                                    value={objective}
+                                    onChange={(e) => setObjective(e.target.value)}
+                                    placeholder={`Ej. Dale una tarea concreta a ${selectedAgent.name}...`}
+                                    className="w-full rounded-xl bg-[#050505] border border-white/15 p-3.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-[#D4AF37]"
+                                />
+                            </div>
+
+                            {error && (
+                                <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                                    {error}
+                                </p>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="bg-[#D4AF37] text-[#050505] font-bold text-sm px-5 py-2.5 rounded-xl hover:brightness-110 disabled:opacity-50 transition-all cursor-pointer"
+                            >
+                                {loading ? `Ejecutando ${selectedAgent.name}...` : `Despachar a ${selectedAgent.name}`}
+                            </button>
+                        </form>
+
+                        <div className="space-y-3 pt-2">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-xs uppercase tracking-wider text-zinc-400">
+                                    Historial persistido de tareas ({history.length})
+                                </h3>
+                                {loadingHistory && (
+                                    <span className="text-[11px] text-zinc-500">Cargando desde Firestore...</span>
+                                )}
+                            </div>
+
+                            {!loadingHistory && history.length === 0 ? (
+                                <p className="text-xs text-zinc-500 border border-dashed border-white/10 rounded-xl p-4">
+                                    Aún no hay tareas registradas. Envía una instrucción arriba para iniciar.
+                                </p>
+                            ) : (
+                                <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                                    {history.map((item) => {
+                                        const badge = STATUS_BADGES[item.task.status];
+                                        const isBusy = actionTaskId === item.task.id;
+
+                                        return (
+                                            <article
+                                                key={item.task.id}
+                                                className="rounded-xl bg-[#050505] border border-white/10 p-4 space-y-2.5"
+                                            >
+                                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="font-bold text-[#D4AF37]">{item.agentName}</span>
+                                                        <span className="text-zinc-500">· {item.agentTitle}</span>
+                                                        <span
+                                                            className={`text-[10px] uppercase px-2 py-0.5 rounded border ${badge.cls}`}
+                                                        >
+                                                            {badge.label}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-zinc-500">
+                                                        {item.model ? `${item.model} · ` : ""}
+                                                        {new Date(item.task.createdAt).toLocaleString()}
+                                                    </span>
+                                                </div>
+
+                                                <p className="text-xs text-zinc-300 font-medium">
+                                                    Objetivo: {item.task.objective}
+                                                </p>
+
+                                                {item.task.outputResult && (
+                                                    <div className="text-xs text-zinc-200 whitespace-pre-wrap leading-relaxed bg-[#0A0A0A] border border-white/5 rounded-lg p-3">
+                                                        {item.task.outputResult}
+                                                    </div>
+                                                )}
+
+                                                {item.task.status === "awaiting_approval" && (
+                                                    <div className="flex items-center gap-2 pt-1">
+                                                        <button
+                                                            type="button"
+                                                            disabled={isBusy}
+                                                            onClick={() => void handleApproval(item.task.id, "approve")}
+                                                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/30 disabled:opacity-50 transition-colors cursor-pointer"
+                                                        >
+                                                            {isBusy ? "Guardando..." : "Aprobar tarea"}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={isBusy}
+                                                            onClick={() => void handleApproval(item.task.id, "reject")}
+                                                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/15 text-red-200 border border-red-500/40 hover:bg-red-500/25 disabled:opacity-50 transition-colors cursor-pointer"
+                                                        >
+                                                            Rechazar
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </article>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
-        </main>
+        </div>
     );
 }
