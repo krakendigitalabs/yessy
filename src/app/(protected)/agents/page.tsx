@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useAuthStore } from "@/store/authStore";
 import { AGENT_LIST } from "@/features/agents/registry";
 import type { AgentDefinition, AgentDivision, AgentTask } from "@/types/agents";
 
@@ -11,7 +12,7 @@ interface ExecutionEntry {
     task: AgentTask;
     agentName: string;
     agentTitle: string;
-    provider: "ollama" | "gemini";
+    provider: "gemini";
     model: string;
 }
 
@@ -30,14 +31,21 @@ const PLAN_BADGES: Record<AgentDefinition["minPlan"], string> = {
     ecosistema: "border-purple-500/50 bg-purple-500/15 text-purple-200",
 };
 
+const DEFAULT_AGENT =
+    AGENT_LIST.find((a) => a.role === "yessy_core") ?? AGENT_LIST[0];
+
 export default function AgentsCommandPage() {
+    const { user, profile } = useAuthStore();
     const [division, setDivision] = useState<DivisionFilter>("all");
-    const [selectedAgent, setSelectedAgent] = useState<AgentDefinition>(AGENT_LIST[1]); // Yessy-Core por defecto
+    const [selectedAgent, setSelectedAgent] = useState<AgentDefinition>(DEFAULT_AGENT);
     const [objective, setObjective] = useState("");
-    const [preferLocal, setPreferLocal] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [history, setHistory] = useState<ExecutionEntry[]>([]);
+
+    const backHref = profile?.role === "admin" ? "/dashboard" : "/portal";
+    const backLabel =
+        profile?.role === "admin" ? "← Volver al Dashboard" : "← Volver al Portal";
 
     const filteredAgents = useMemo(() => {
         if (division === "all") return AGENT_LIST;
@@ -58,7 +66,10 @@ export default function AgentsCommandPage() {
                 body: JSON.stringify({
                     role: selectedAgent.role,
                     objective: objective.trim(),
-                    preferLocal,
+                    tenantId:
+                        profile?.role === "admin"
+                            ? "kraken-hq"
+                            : (profile?.uid ?? user?.uid ?? "kraken-hq"),
                 }),
             });
 
@@ -89,7 +100,6 @@ export default function AgentsCommandPage() {
     return (
         <main className="min-h-screen bg-[#050505] text-[#F8F9FA] px-4 py-8 sm:px-6 lg:px-10">
             <div className="mx-auto max-w-7xl space-y-8">
-                {/* Cabecera */}
                 <header className="flex flex-col gap-4 border-b border-[#D4AF37]/20 pb-6 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <p className="text-xs font-bold uppercase tracking-[0.25em] text-[#D4AF37]">
@@ -99,21 +109,20 @@ export default function AgentsCommandPage() {
                             Sala de Comando — 19 Agentes
                         </h1>
                         <p className="mt-1 text-sm text-neutral-400">
-                            Selecciona cualquier puesto corporativo, asigna un objetivo y ejecuta en tiempo real.
+                            Selecciona cualquier puesto corporativo, asigna un objetivo y ejecuta en tiempo real con Gemini.
                         </p>
                     </div>
 
                     <div className="flex items-center gap-3">
                         <Link
-                            href="/dashboard"
+                            href={backHref}
                             className="rounded-xl border border-[#D4AF37]/30 bg-[#0A0A0A] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[#F3E5AB] transition hover:border-[#D4AF37] hover:bg-[#D4AF37]/10"
                         >
-                            ← Volver al Dashboard
+                            {backLabel}
                         </Link>
                     </div>
                 </header>
 
-                {/* Filtros de División */}
                 <nav aria-label="Filtrar agentes por división" className="flex flex-wrap gap-2">
                     {(Object.keys(DIVISION_LABELS) as DivisionFilter[]).map((key) => {
                         const active = division === key;
@@ -133,9 +142,7 @@ export default function AgentsCommandPage() {
                     })}
                 </nav>
 
-                {/* Layout Principal: Grid de Agentes + Consola Activa */}
                 <div className="grid gap-8 lg:grid-cols-12">
-                    {/* Izquierda: Tarjetas de los Agentes */}
                     <section className="lg:col-span-7 grid gap-3 sm:grid-cols-2 content-start">
                         {filteredAgents.map((agent) => {
                             const isSelected = selectedAgent.role === agent.role;
@@ -186,7 +193,6 @@ export default function AgentsCommandPage() {
                         })}
                     </section>
 
-                    {/* Derecha: Consola de Despacho + Historial */}
                     <section className="lg:col-span-5 space-y-6">
                         <div className="rounded-2xl border border-[#D4AF37]/40 bg-[#0A0A0A] p-5 shadow-[0_0_30px_rgba(212,175,55,0.08)]">
                             <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
@@ -222,16 +228,6 @@ export default function AgentsCommandPage() {
                                     />
                                 </div>
 
-                                <label className="flex items-center gap-2 text-xs text-neutral-400 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={preferLocal}
-                                        onChange={(e) => setPreferLocal(e.target.checked)}
-                                        className="accent-[#D4AF37]"
-                                    />
-                                    <span>Intentar Ollama local primero (con respaldo automático a Gemini)</span>
-                                </label>
-
                                 {error && (
                                     <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
                                         {error}
@@ -250,7 +246,6 @@ export default function AgentsCommandPage() {
                             </form>
                         </div>
 
-                        {/* Historial de Respuestas en Vivo */}
                         <div className="space-y-3">
                             <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-400">
                                 Resultados de la Sesión ({history.length})

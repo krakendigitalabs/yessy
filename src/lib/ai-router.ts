@@ -1,105 +1,104 @@
+import dns from "node:dns";
+import net from "node:net";
+
+dns.setDefaultResultOrder("ipv4first");
+net.setDefaultAutoSelectFamily(false);
+
 export interface AIRequest {
     systemPrompt: string;
     userPrompt: string;
-    temperature?: number;
-    preferLocal?: boolean;
 }
 
 export interface AIResponse {
     content: string;
-    provider: "ollama" | "gemini";
+    provider: "gemini";
     model: string;
 }
 
-const OLLAMA_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1";
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const MAX_RETRIES = 3;
 
-async function callOllama(req: AIRequest): Promise<AIResponse> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
-    try {
-        const res = await fetch(`${OLLAMA_URL}/api/chat`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            signal: controller.signal,
-            body: JSON.stringify({
-                model: OLLAMA_MODEL,
-                stream: false,
-                options: { temperature: req.temperature ?? 0.4 },
-                messages: [
-                    { role: "system", content: req.systemPrompt },
-                    { role: "user", content: req.userPrompt },
-                ],
-            }),
-        });
-
-        if (!res.ok) {
-            throw new Error(`Ollama respondió con estado ${res.status}`);
-        }
-
-        const data = (await res.json()) as { message?: { content?: string } };
-        const content = data.message?.content?.trim();
-        if (!content) throw new Error("Respuesta vacía de Ollama");
-
-        return { content, provider: "ollama", model: OLLAMA_MODEL };
-    } finally {
-        clearTimeout(timeout);
-    }
+function sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function callGemini(req: AIRequest): Promise<AIResponse> {
-    if (!GEMINI_API_KEY) {
-        throw new Error(
-            "Falta GEMINI_API_KEY en .env.local y Ollama no está disponible.",
-        );
+export async function runAgentCompletion(req: AIRequest): Promise<AIResponse> {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) {
+        throw new Error("Falta GEMINI_API_KEY en .env.local");
     }
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
-    const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            system_instruction: { parts: [{ text: req.systemPrompt }] },
-            contents: [{ role: "user", parts: [{ text: req.userPrompt }] }],
-            generationConfig: { temperature: req.temperature ?? 0.4 },
-        }),
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+    const payload = JSON.stringify({
+        system_instruction: {
+            parts: [{ text: req.systemPrompt }],
+        },
+        contents: [
+            {
+                role: "user",
+                parts: [{ text: req.userPrompt }],
+            },
+        ],
+        generationConfig: {
+            temperature: 0.7,
+        },
     });
 
-    if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Error Gemini (${res.status}): ${errText}`);
-    }
+    let lastError = "Error desconocido consultando Gemini.";
 
-    const data = (await res.json()) as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    if (!content) throw new Error("Respuesta vacía de Gemini");
-
-    return { content, provider: "gemini", model: GEMINI_MODEL };
-}
-
-/**
- * Enrutador inteligente de Kraken OS:
- * - Si preferLocal=true (o en desarrollo con Ollama activo), intenta Ollama primero.
- * - Si falla o está en producción serverless (Vercel), cae automáticamente a Gemini.
- */
-export async function runAgentCompletion(req: AIRequest): Promise<AIResponse> {
-    const tryOllamaFirst =
-        req.preferLocal === true || Boolean(process.env.OLLAMA_BASE_URL);
-
-    if (tryOllamaFirst) {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        let res: Response;
         try {
-            return await callOllama(req);
+            res = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                signal: AbortSignal.timeout(60000),
+                body: payload,
+            });
         } catch (err) {
-            console.warn("[ai-router] Ollama no disponible, usando fallback Gemini:", err);
+            const cause =
+                err instanceof Error && "cause" in err && err.cause
+                    ? ` (${String(err.cause)})`
+                    : "";
+            lastError = `No se pudo conectar con Gemini: ${err instanceof Error ? err.message : "fetch failed"}${cause}`;
+            if (attempt < MAX_RETRIES) {
+                await sleep(1500 * attempt);
+                continue;
+            }
+            throw new Error(lastError);
         }
+
+        if (res.ok) {
+            const data = (await res.json()) as {
+                candidates?: Array<{
+                    content?: { parts?: Array<{ text?: string }> };
+                }>;
+            };
+
+            const content =
+                data.candidates?.[0]?.content?.parts
+                    ?.map((p) => p.text ?? "")
+                    .join("")
+                    .trim() ?? "";
+
+            if (!content) {
+                throw new Error("Gemini devolvió una respuesta vacía.");
+            }
+
+            return { content, provider: "gemini", model: GEMINI_MODEL };
+        }
+
+        const errText = await res.text();
+        lastError = `Error Gemini (${res.status}): ${errText}`;
+
+        // Si es saturación temporal (503) o límite momentáneo (429), reintenta automáticamente
+        if ((res.status === 503 || res.status === 429) && attempt < MAX_RETRIES) {
+            await sleep(2000 * attempt);
+            continue;
+        }
+
+        throw new Error(lastError);
     }
 
-    return callGemini(req);
+    throw new Error(lastError);
 }
